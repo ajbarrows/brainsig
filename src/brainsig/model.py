@@ -547,7 +547,8 @@ class NeuralSignature:
         Compute neural signature scores for each subject.
 
         The neural signature score is computed as the difference in predicted
-        probabilities for condition 1 between the two task conditions:
+        probabilities for condition 1 between the two task conditions::
+
             score = P(y=1 | condition1_data) - P(y=1 | condition0_data)
 
         Parameters

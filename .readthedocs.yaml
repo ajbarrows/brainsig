@@ -8,10 +8,10 @@ build:
     python: "3.12"
   commands:
     - pip install --upgrade pip
-    - pip install -e .
+    - pip install -e '.[docs]'
     # Make sure RTD can find the html output
-    # - sphinx-build -b html docs $READTHEDOCS_OUTPUT/html
-    - hatch run docs:build docs $READTHEDOCS_OUTPUT/html
+    - sphinx-build -b html docs $READTHEDOCS_OUTPUT/html
+    # - hatch run docs:build docs $READTHEDOCS_OUTPUT/html
 
 
 sphinx:

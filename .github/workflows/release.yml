@@ -50,7 +50,7 @@ jobs:
     name: >-
       Publish Python 🐍 distribution 📦 to PyPI
     # Modify the repo name below to be your project's repo name.
-    if: github.repository_owner == "{{ username }}"
+    if: github.repository_owner == "ajbarrow"
     needs:
       - build
     runs-on: ubuntu-latest

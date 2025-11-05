@@ -11,6 +11,8 @@ extensions = [
     "myst_parser",
     "sphinx.ext.intersphinx",
     "sphinx.ext.autodoc",
+    "sphinx.ext.napoleon",  # Support for NumPy style docstrings
+    "autoapi.extension",  # Automatic API documentation generation
 ]
 
 # The suffix of source filenames.
@@ -45,6 +47,19 @@ language = "en"
 # -- Options for extensions ----------------------------------------------------
 # https://myst-parser.readthedocs.io/en/latest/syntax/optional.html
 myst_enable_extensions = ["html_image"]
+
+# AutoAPI configuration - automatically generates API docs from source code
+autoapi_dirs = ["../src/brainsig"]
+autoapi_type = "python"
+autoapi_options = [
+    "members",
+    "undoc-members",
+    "show-inheritance",
+    "show-module-summary",
+    "imported-members",
+]
+autoapi_ignore = ["*/_version.py"]
+autoapi_add_toctree_entry = True
 
 
 # -- Options for HTML output ---------------------------------------------------

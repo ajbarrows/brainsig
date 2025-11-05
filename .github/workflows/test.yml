@@ -50,7 +50,7 @@ jobs:
       uses: pypa/hatch@install
 
     - name: Check installation
-      run: hatch run install:check
+      run: hatch run build:check
 
     - name: Check dependencies
       run: hatch run audit:check
