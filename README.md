@@ -23,9 +23,12 @@ TODO: Add a brief example of how to use the package to this section
 To use brainsig in your code:
 
 ```python
->>> import brainsig
->>> brainsig.hello_world()
+>>> from brainsig.dataset import Dataset
+>>> from brainsig.model import NeuralSignature
 ```
+
+Full documentation: brainsig.readthedocs.io/en/latest/
+
 
 ## Copyright
 
