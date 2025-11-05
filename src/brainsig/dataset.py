@@ -103,7 +103,7 @@ class Dataset:
         cleaned_df, self.dropped_summary = self._drop_missing_data(
             df,
             missing_threshold,
-            verbose,
+            verbose=verbose,
         )
 
         # Create sklearn dataset
