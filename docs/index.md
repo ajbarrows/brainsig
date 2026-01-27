@@ -32,7 +32,16 @@ scores = neural_sig.compute_signature_scores(condition1_data, condition0_data)
 
 ## API Reference
 
-The API documentation is automatically generated from the source code docstrings. Navigate to the "brainsig" section in the sidebar to explore the available classes and functions.
+The API documentation is automatically generated from the source code docstrings.
+
+```{toctree}
+:maxdepth: 3
+:caption: API Documentation
+
+autoapi/brainsig/index
+autoapi/brainsig/dataset/index
+autoapi/brainsig/model/index
+```
 
 ## Copyright
 

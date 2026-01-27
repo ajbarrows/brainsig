@@ -16,7 +16,10 @@ extensions = [
 ]
 
 # The suffix of source filenames.
-source_suffix = ".rst"
+source_suffix = {
+    ".rst": "restructuredtext",
+    ".md": "markdown",
+}
 
 # The master toctree document.
 master_doc = "index"
@@ -59,7 +62,8 @@ autoapi_options = [
     "imported-members",
 ]
 autoapi_ignore = ["*/_version.py"]
-autoapi_add_toctree_entry = True
+# We manually add the toctree entry in index.md for better control
+autoapi_add_toctree_entry = False
 
 
 # -- Options for HTML output ---------------------------------------------------
