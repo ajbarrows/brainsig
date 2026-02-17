@@ -5,70 +5,49 @@ on:
     types: [published]
 
 jobs:
-  prerequisites:
-    uses: ./.github/workflows/test.yml
-  # Setup build separate from publish for added security
-  # See https://github.com/pypa/gh-action-pypi-publish/issues/217#issuecomment-1965727093
   build:
-    needs: [prerequisites]
     runs-on: ubuntu-latest
-    # Environment is encouraged for increased security
     steps:
       - name: Checkout
-        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v4
-        with:
-          # This fetch element is only important if you are use SCM based
-          # versioning (that looks at git tags to gather the version).
-          # setuptools-scm needs tags to form a valid version number
-          fetch-tags: true
+        uses: actions/checkout@v4
 
       - name: Setup Python
-        uses: actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c # v5
+        uses: actions/setup-python@v5
         with:
-          # You can modify what version of Python you want to use for your release
           python-version: "3.11"
 
-      # Security recommends we should pin deps. Should we pin the workflow version?
       - name: Install hatch
-        uses: pypa/hatch@257e27e51a6a5616ed08a39a408a21c35c9931bc
+        uses: pypa/hatch@install
 
-      - name: Build package using Hatch
-        run: |
-          hatch build
-          echo ""
-          echo "Generated files:"
-          ls -lh dist/
+      - name: Run tests
+        run: hatch run +py=3.11 test:run
 
-      # Store an artifact of the build to use in the publish step below
+      - name: Build package
+        run: hatch build
+
       - name: Store the distribution packages
-        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v4
+        uses: actions/upload-artifact@v4
         with:
           name: python-package-distributions
           path: dist/
           if-no-files-found: error
+
   publish:
-    name: >-
-      Publish Python 🐍 distribution 📦 to PyPI
-    # Modify the repo name below to be your project's repo name.
-    if: github.repository_owner == "ajbarrow"
-    needs:
-      - build
+    name: Publish to PyPI
+    if: github.repository_owner == 'ajbarrows'
+    needs: [build]
     runs-on: ubuntu-latest
-    # Environment required here for trusted publisher
     environment:
       name: pypi
-      # Modify the url to be the name of your package
       url: https://pypi.org/p/brainsig
     permissions:
-      id-token: write  # this permission is mandatory for PyPI publishing
+      id-token: write
     steps:
       - name: Download dists
-        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v4
+        uses: actions/download-artifact@v4
         with:
           name: python-package-distributions
           path: dist/
-          merge-multiple: true
+
       - name: Publish package to PyPI
-        # Only publish to real PyPI on release
-        if: github.event_name == 'release' && github.event.action == 'published'
         uses: pypa/gh-action-pypi-publish@release/v1
