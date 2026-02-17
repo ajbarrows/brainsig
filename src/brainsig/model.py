@@ -68,7 +68,7 @@ class ElasticNetClassifier:
         }
         self.inner_folds = inner_folds
         self.outer_folds = outer_folds
-        self.Cs = cs or [0.001, 0.01, 0.1, 1, 10, 100, 1000]
+        self.Cs = cs or [0.001, 0.01, 0.1, 1, 10]
         self.l1_ratios = l1_ratios or [0.1, 0.5, 0.7, 0.9, 0.95, 0.99, 1.0]
         self.max_iter = max_iter
         self.n_jobs = n_jobs

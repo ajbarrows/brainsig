@@ -266,17 +266,20 @@ class Dataset:
             )
 
         self.preprocessor = preprocessor
-        X_processed = self.preprocessor.fit_transform(X)
-        self.feature_names = self.preprocessor.get_feature_names_out()
 
         # Train/test split
         if test_size > 0:
-            self.X_train, self.X_test, self.y_train, self.y_test = train_test_split(
-                X_processed,
+            X_train, X_test, self.y_train, self.y_test = train_test_split(
+                X,
                 y.to_numpy(),
                 test_size=test_size,
                 random_state=random_state,
             )
+            # Fit preprocessor on training data only to avoid data leakage
+            self.X_train = self.preprocessor.fit_transform(X_train)
+            self.X_test = self.preprocessor.transform(X_test)
         else:
-            self.X = X_processed
+            self.X = self.preprocessor.fit_transform(X)
             self.y = y.to_numpy()
+
+        self.feature_names = self.preprocessor.get_feature_names_out()
