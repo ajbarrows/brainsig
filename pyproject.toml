@@ -161,6 +161,11 @@ exclude = [
     "PLR0913",  # Too many arguments - acceptable for data processing __init__
     "N806",  # Variable names like X, X_processed follow scikit-learn conventions
 ]
+"src/brainsig/neural_dataset.py" = [
+    "PLR0913",  # Too many arguments - acceptable for dataset __init__
+    "N803",  # Argument names like X follow scikit-learn conventions
+    "N806",  # Variable names like X follow scikit-learn conventions
+]
 "src/brainsig/model.py" = [
     "N806",  # Variable names like X, X_processed follow scikit-learn conventions
     "PLR0913",  # Too many arguments - acceptable for model configuration
