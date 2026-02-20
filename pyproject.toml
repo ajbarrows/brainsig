@@ -169,8 +169,8 @@ exclude = [
 "src/brainsig/model.py" = [
     "N806",  # Variable names like X, X_processed follow scikit-learn conventions
     "PLR0913",  # Too many arguments - acceptable for model configuration
-    "C901",  # Complexity - get_model_scores handles multiple scoring scenarios
-    "PLR0912",  # Too many branches - get_model_scores handles multiple cases
+    "C901",  # Complexity - get_cv_model_scores handles multiple scoring scenarios
+    "PLR0912",  # Too many branches - get_cv_model_scores handles multiple cases
     "PLR2004",  # Magic value 2 for binary vs multiclass is clear in context
 ]
 

@@ -99,8 +99,8 @@ class TestNeuralSignatureEndToEnd:
         assert "estimator" in cv_results["condition"]
         assert len(cv_results["condition"]["estimator"]) == 3
 
-        # Get model performance
-        scores = neural_sig.get_model_scores(dataset)
+        # Get model performance per CV fold
+        scores = neural_sig.get_cv_model_scores(dataset)
         assert "acc" in scores["metric"].values
         assert "f1" in scores["metric"].values
         assert "auc" in scores["metric"].values
@@ -172,7 +172,7 @@ class TestRealWorldScenarios:
         )
         neural_sig.cross_validate(dataset)
 
-        scores = neural_sig.get_model_scores(dataset)
+        scores = neural_sig.get_cv_model_scores(dataset)
 
         # Get test AUC scores
         test_auc = scores[

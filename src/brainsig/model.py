@@ -6,8 +6,10 @@ This module implements the ElasticNetClassifier for neural signature analysis.
 
 import numpy as np
 import pandas as pd
+from joblib import dump, load as joblib_load
 from sklearn.linear_model import LogisticRegressionCV
-from sklearn.metrics import accuracy_score, f1_score, roc_auc_score
+from sklearn.metrics import accuracy_score, f1_score, roc_auc_score, roc_curve
+from sklearn.preprocessing import label_binarize
 from sklearn.model_selection import StratifiedKFold, cross_validate
 
 class ElasticNetClassifier:
@@ -324,25 +326,83 @@ class ElasticNetClassifier:
 
     def get_model_scores(self, dataset=None) -> pd.DataFrame:
         """
-        Get all available model scores from CV and/or fitted models.
+        Get fit statistics for the model trained on the full dataset.
 
         Parameters
         ----------
         dataset : Dataset or None, default=None
-            Dataset object with target labels for score interpretation.
+            Unused. Kept for API consistency.
 
         Returns
         -------
         pd.DataFrame
-            DataFrame with scores from cross-validation and/or fitted models,
-            including accuracy, F1, and AUC metrics per class.
+            DataFrame with accuracy, F1, and AUC scores for the fitted model,
+            with columns: value, partition, metric, target, target_label.
         """
         all_scores = pd.DataFrame()
 
-        # Add CV scores if available
+        if hasattr(self, "predictions") and self.predictions:
+            for target_name, pred_data in self.predictions.items():
+                y_true, y_pred = pred_data["y_true"], pred_data["y_pred"]
+                y_pred_proba = pred_data["y_pred_proba"]
+
+                unique_classes = np.unique(y_true)
+                is_binary = len(unique_classes) == 2
+                f1_per_class = f1_score(y_true, y_pred, average=None)
+
+                if y_pred_proba is not None:
+                    if is_binary:
+                        auc_val = roc_auc_score(y_true, y_pred_proba[:, 1])
+                        auc_per_class = [auc_val, auc_val]
+                    else:
+                        auc_per_class = roc_auc_score(
+                            y_true,
+                            y_pred_proba,
+                            multi_class="ovr",
+                            average=None,
+                        )
+
+                acc_score = accuracy_score(y_true, y_pred)
+
+                for i, class_label in enumerate(unique_classes):
+                    class_scores = {"acc": acc_score, "f1": f1_per_class[i]}
+
+                    if y_pred_proba is not None:
+                        class_scores["auc"] = auc_per_class[i]
+
+                    for metric, score in class_scores.items():
+                        fitted_scores = pd.DataFrame(
+                            {
+                                "value": [score],
+                                "partition": ["test_holdout"],
+                                "metric": [metric],
+                                "target": [target_name],
+                                "target_label": [class_label],
+                            },
+                        )
+                        all_scores = pd.concat([all_scores, fitted_scores])
+
+        return all_scores
+
+    def get_cv_model_scores(self, dataset=None) -> pd.DataFrame:
+        """
+        Get fit statistics for each validation fold separately.
+
+        Parameters
+        ----------
+        dataset : Dataset or None, default=None
+            Dataset object with target labels for multi-class score interpretation.
+
+        Returns
+        -------
+        pd.DataFrame
+            DataFrame with accuracy, F1, and AUC scores per CV fold,
+            with columns: cv_fold, value, partition, metric, target, target_label.
+        """
+        all_scores = pd.DataFrame()
+
         if hasattr(self, "cv_results") and self.cv_results:
             for target_name, cv_result in self.cv_results.items():
-                # Get the class labels for this target from dataset
                 target_labels = None
                 if dataset and hasattr(dataset, "target_labels"):
                     target_labels = dataset.target_labels.get(target_name)
@@ -350,7 +410,6 @@ class ElasticNetClassifier:
                 for k, v in cv_result.items():
                     splits = k.split("_")
                     if splits[0] in ["train", "test"]:
-                        # If this is a multi-class problem, scores are per class
                         if target_labels and len(target_labels) > 2:  # Multi-class
                             for i, class_label in enumerate(target_labels):
                                 cv_scores = (
@@ -361,7 +420,6 @@ class ElasticNetClassifier:
                                         partition=splits[0],
                                         metric=splits[1],
                                         target=target_name,
-                                        score_type="cv",
                                         target_label=class_label,
                                     )
                                     .reset_index(names=["cv_fold"])
@@ -374,53 +432,126 @@ class ElasticNetClassifier:
                                     partition=splits[0],
                                     metric=splits[1],
                                     target=target_name,
-                                    score_type="cv",
                                     target_label=None,
                                 )
                                 .reset_index(names=["cv_fold"])
                             )
                             all_scores = pd.concat([all_scores, cv_scores])
 
-            # Add fitted model scores if available (rest remains the same)
-            if hasattr(self, "predictions") and self.predictions:
-                for target_name, pred_data in self.predictions.items():
-                    y_true, y_pred = pred_data["y_true"], pred_data["y_pred"]
-                    y_pred_proba = pred_data["y_pred_proba"]
-
-                    unique_classes = np.unique(y_true)
-                    f1_per_class = f1_score(y_true, y_pred, average=None)
-
-                    if y_pred_proba is not None:
-                        auc_per_class = roc_auc_score(
-                            y_true,
-                            y_pred_proba,
-                            multi_class="ovr",
-                            average=None,
-                        )
-
-                    acc_score = accuracy_score(y_true, y_pred)
-
-                    for i, class_label in enumerate(unique_classes):
-                        class_scores = {"acc": acc_score, "f1": f1_per_class[i]}
-
-                        if y_pred_proba is not None:
-                            class_scores["auc"] = auc_per_class[i]
-
-                        for metric, score in class_scores.items():
-                            fitted_scores = pd.DataFrame(
-                                {
-                                    "cv_fold": [0],
-                                    "value": [score],
-                                    "partition": ["test_holdout"],
-                                    "metric": [metric],
-                                    "target": [target_name],
-                                    "target_label": [class_label],
-                                    "score_type": ["fitted"],
-                                },
-                            )
-                            all_scores = pd.concat([all_scores, fitted_scores])
-
         return all_scores
+
+    def get_roc_curve(self, dataset=None) -> pd.DataFrame:
+        """
+        Get ROC curve data for the model trained on the full dataset.
+
+        Parameters
+        ----------
+        dataset : Dataset or None, default=None
+            Unused. Kept for API consistency.
+
+        Returns
+        -------
+        pd.DataFrame
+            Long-format DataFrame with one row per threshold point, with columns:
+            fpr, tpr, threshold, target, target_label.
+        """
+        all_curves = pd.DataFrame()
+
+        if not (hasattr(self, "predictions") and self.predictions):
+            return all_curves
+
+        for target_name, pred_data in self.predictions.items():
+            y_true = pred_data["y_true"]
+            y_pred_proba = pred_data["y_pred_proba"]
+
+            if y_pred_proba is None:
+                continue
+
+            unique_classes = np.unique(y_true)
+            is_binary = len(unique_classes) == 2
+
+            if is_binary:
+                fpr, tpr, thresholds = roc_curve(y_true, y_pred_proba[:, 1])
+                curve_df = pd.DataFrame(
+                    {"fpr": fpr, "tpr": tpr, "threshold": thresholds}
+                ).assign(target=target_name, target_label=unique_classes[1])
+                all_curves = pd.concat([all_curves, curve_df])
+            else:
+                y_bin = label_binarize(y_true, classes=unique_classes)
+                for i, class_label in enumerate(unique_classes):
+                    fpr, tpr, thresholds = roc_curve(y_bin[:, i], y_pred_proba[:, i])
+                    curve_df = pd.DataFrame(
+                        {"fpr": fpr, "tpr": tpr, "threshold": thresholds}
+                    ).assign(target=target_name, target_label=class_label)
+                    all_curves = pd.concat([all_curves, curve_df])
+
+        return all_curves.reset_index(drop=True)
+
+    def get_cv_roc_curves(self, dataset) -> pd.DataFrame:
+        """
+        Get ROC curve data for each validation fold.
+
+        Parameters
+        ----------
+        dataset : Dataset
+            Dataset object providing X_train and y_train for fold reconstruction.
+
+        Returns
+        -------
+        pd.DataFrame
+            Long-format DataFrame with one row per threshold point, with columns:
+            cv_fold, partition, fpr, tpr, threshold, target, target_label.
+        """
+        all_curves = pd.DataFrame()
+
+        if not (hasattr(self, "cv_results") and self.cv_results):
+            return all_curves
+
+        n_targets = len(self.target_names)
+
+        for i, target_name in enumerate(self.target_names):
+            cv_result = self.cv_results[target_name]
+            y_target = (
+                dataset.y_train[:, i] if n_targets > 1 else dataset.y_train.ravel()
+            )
+            unique_classes = np.unique(y_target)
+            is_binary = len(unique_classes) == 2
+
+            for fold_idx, estimator in enumerate(cv_result["estimator"]):
+                for partition in ("train", "test"):
+                    idx = cv_result["indices"][partition][fold_idx]
+                    X_fold = dataset.X_train[idx]
+                    y_fold = y_target[idx]
+                    y_proba = estimator.predict_proba(X_fold)
+
+                    if is_binary:
+                        fpr, tpr, thresholds = roc_curve(y_fold, y_proba[:, 1])
+                        curve_df = pd.DataFrame(
+                            {"fpr": fpr, "tpr": tpr, "threshold": thresholds}
+                        ).assign(
+                            cv_fold=fold_idx,
+                            partition=partition,
+                            target=target_name,
+                            target_label=unique_classes[1],
+                        )
+                        all_curves = pd.concat([all_curves, curve_df])
+                    else:
+                        y_bin = label_binarize(y_fold, classes=unique_classes)
+                        for j, class_label in enumerate(unique_classes):
+                            fpr, tpr, thresholds = roc_curve(
+                                y_bin[:, j], y_proba[:, j]
+                            )
+                            curve_df = pd.DataFrame(
+                                {"fpr": fpr, "tpr": tpr, "threshold": thresholds}
+                            ).assign(
+                                cv_fold=fold_idx,
+                                partition=partition,
+                                target=target_name,
+                                target_label=class_label,
+                            )
+                            all_curves = pd.concat([all_curves, curve_df])
+
+        return all_curves.reset_index(drop=True)
 
 
 class NeuralSignature:
@@ -519,6 +650,7 @@ class NeuralSignature:
             Whether to store the dataset in the classifier.
         """
         self.classifier.fit_model(dataset, keep_dataset=keep_dataset)
+        self.classifier.predict(dataset)
 
     def cross_validate(self, dataset) -> dict:
         """
@@ -731,16 +863,96 @@ class NeuralSignature:
 
     def get_model_scores(self, dataset=None) -> pd.DataFrame:
         """
-        Get classification performance scores.
+        Get fit statistics for the model trained on the full dataset.
 
         Parameters
         ----------
         dataset : Dataset or None, default=None
-            Dataset object with target labels.
+            Unused. Kept for API consistency.
 
         Returns
         -------
         pd.DataFrame
-            DataFrame with classification accuracy, F1, and AUC scores.
+            DataFrame with accuracy, F1, and AUC scores for the fitted model,
+            with columns: value, partition, metric, target, target_label.
         """
         return self.classifier.get_model_scores(dataset)
+
+    def get_cv_model_scores(self, dataset=None) -> pd.DataFrame:
+        """
+        Get fit statistics for each validation fold separately.
+
+        Parameters
+        ----------
+        dataset : Dataset or None, default=None
+            Dataset object with target labels for multi-class score interpretation.
+
+        Returns
+        -------
+        pd.DataFrame
+            DataFrame with accuracy, F1, and AUC scores per CV fold,
+            with columns: cv_fold, value, partition, metric, target, target_label.
+        """
+        return self.classifier.get_cv_model_scores(dataset)
+
+    def get_roc_curve(self, dataset=None) -> pd.DataFrame:
+        """
+        Get ROC curve data for the model trained on the full dataset.
+
+        Parameters
+        ----------
+        dataset : Dataset or None, default=None
+            Unused. Kept for API consistency.
+
+        Returns
+        -------
+        pd.DataFrame
+            Long-format DataFrame with one row per threshold point, with columns:
+            fpr, tpr, threshold, target, target_label.
+        """
+        return self.classifier.get_roc_curve(dataset)
+
+    def get_cv_roc_curves(self, dataset) -> pd.DataFrame:
+        """
+        Get ROC curve data for each validation fold.
+
+        Parameters
+        ----------
+        dataset : Dataset
+            Dataset object used during cross-validation.
+
+        Returns
+        -------
+        pd.DataFrame
+            Long-format DataFrame with one row per threshold point, with columns:
+            cv_fold, partition, fpr, tpr, threshold, target, target_label.
+        """
+        return self.classifier.get_cv_roc_curves(dataset)
+
+    def save(self, path) -> None:
+        """
+        Save the fitted model to disk using joblib.
+
+        Parameters
+        ----------
+        path : str or Path
+            File path to save the model to (e.g. 'model.joblib').
+        """
+        dump(self, path)
+
+    @classmethod
+    def load(cls, path) -> "NeuralSignature":
+        """
+        Load a saved model from disk.
+
+        Parameters
+        ----------
+        path : str or Path
+            File path of the saved model.
+
+        Returns
+        -------
+        NeuralSignature
+            The loaded model instance.
+        """
+        return joblib_load(path)

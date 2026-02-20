@@ -394,13 +394,27 @@ class TestNeuralSignatureHelperMethods:
         assert isinstance(coefs, pd.DataFrame)
         assert len(coefs) > 0
 
-    def test_get_model_scores(self, binary_dataset):
-        """Test getting model performance scores."""
+    def test_get_cv_model_scores(self, binary_dataset):
+        """Test getting per-fold CV performance scores."""
         neural_sig = NeuralSignature(random_state=42)
         neural_sig.cross_validate(binary_dataset)
+
+        scores = neural_sig.get_cv_model_scores(binary_dataset)
+
+        assert isinstance(scores, pd.DataFrame)
+        assert "metric" in scores.columns
+        assert "value" in scores.columns
+        assert "cv_fold" in scores.columns
+        assert "partition" in scores.columns
+
+    def test_get_model_scores(self, binary_dataset):
+        """Test getting fit statistics for the full-dataset model."""
+        neural_sig = NeuralSignature(random_state=42)
+        neural_sig.fit(binary_dataset)
 
         scores = neural_sig.get_model_scores(binary_dataset)
 
         assert isinstance(scores, pd.DataFrame)
         assert "metric" in scores.columns
         assert "value" in scores.columns
+        assert "partition" in scores.columns
