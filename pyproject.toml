@@ -13,7 +13,7 @@ requires = ["hatchling", "hatch-vcs"]
 [project]
 name = "brainsig"
 # You can chose to use dynamic versioning with hatch or static where you add it manually.
-version = "0.2.0"
+version = "0.2.1"
 description = "A package for computing 'neural signatures' from fMRI data."
 authors = [
     { name = "Tony Barrows", email = "ajbarrow@uvm.edu" },
