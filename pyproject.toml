@@ -49,6 +49,7 @@ Download = "https://pypi.org/project/brainsig/#files"
 dev = [
     "hatch",
     "pre-commit",
+    "ipykernel"
 ]
 
 docs = [
