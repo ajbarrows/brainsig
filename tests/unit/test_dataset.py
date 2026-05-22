@@ -124,10 +124,9 @@ class TestPreprocessing:
     """Test feature preprocessing."""
 
     def test_numeric_feature_scaling(self, sample_dataframe):
-        """Test that numeric features are scaled."""
+        """Test that numeric features are scaled by RobustScaler."""
         dataset = Dataset(sample_dataframe, target="outcome", random_state=42)
 
-        # Check that StandardScaler was applied (mean ~0, std ~1)
         numeric_indices = [
             i
             for i, name in enumerate(dataset.feature_names)
@@ -136,20 +135,40 @@ class TestPreprocessing:
 
         if numeric_indices:
             numeric_features = dataset.X_train[:, numeric_indices]
-            # Should be roughly normalized
-            assert np.abs(np.mean(numeric_features, axis=0)).max() < 1.0
+            # Scaled values must be of order 1, not the original scale (e.g. income = 50,000)
+            assert np.abs(numeric_features).max() < 10
+            # RobustScaler centres on the median: training-set median is exactly 0
+            np.testing.assert_allclose(
+                np.median(numeric_features, axis=0), 0.0, atol=1e-10
+            )
 
     def test_categorical_encoding(self, sample_dataframe):
         """Test that categorical features are one-hot encoded."""
         dataset = Dataset(sample_dataframe, target="outcome", random_state=42)
 
-        # Check for categorical features
         cat_features = [
             name for name in dataset.feature_names if name.startswith("cat__")
         ]
         assert len(cat_features) > 0
-        # One-hot encoding with drop='first' should create n-1 columns
-        assert "cat__city_LA" in cat_features or "cat__city_NYC" in cat_features
+        # drop="if_binary" keeps all k columns for multi-category features
+        assert "cat__city_LA" in cat_features
+        assert "cat__city_NYC" in cat_features
+
+    def test_ohe_drop_if_binary(self):
+        """drop='if_binary' drops one column only for binary categoricals."""
+        df = pd.DataFrame(
+            {
+                "multi_cat": ["a", "b", "c", "a", "b"],  # 3 categories: no drop
+                "binary_cat": ["x", "y", "x", "y", "x"],  # 2 categories: drop one
+                "outcome": [0, 1, 0, 1, 0],
+            }
+        )
+        dataset = Dataset(df, target="outcome", random_state=42, verbose=False)
+        cat_features = [n for n in dataset.feature_names if n.startswith("cat__")]
+        multi_cols = [n for n in cat_features if "multi_cat" in n]
+        binary_cols = [n for n in cat_features if "binary_cat" in n]
+        assert len(multi_cols) == 3
+        assert len(binary_cols) == 1
 
     def test_custom_preprocessor(self, sample_dataframe):
         """Test using a custom preprocessor."""

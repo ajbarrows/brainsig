@@ -929,6 +929,126 @@ class NeuralSignature:
         """
         return self.classifier.get_cv_roc_curves(dataset)
 
+    def get_best_cv_model(self, metric: str = "auc") -> tuple:
+        """
+        Return the outer-fold estimator with the highest validation score.
+
+        Parameters
+        ----------
+        metric : str, default='auc'
+            Outer-CV scoring key to rank folds by.  Must match a key in
+            ``outer_scoring`` (e.g. ``'auc'``, ``'acc'``, ``'f1'``).
+
+        Returns
+        -------
+        estimator : fitted LogisticRegressionCV
+            The best outer-fold estimator.
+        train_idx : np.ndarray
+            Row indices into ``dataset.X_train`` for that fold's training split.
+
+        Raises
+        ------
+        ValueError
+            If ``cross_validate`` has not been called yet, or if *metric* is
+            not found in the CV results.
+        """
+        if not self.classifier.cv_results:
+            msg = "Must run cross_validate() before calling get_best_cv_model()."
+            raise ValueError(msg)
+
+        target_name = next(iter(self.classifier.cv_results.keys()))
+        cv_result = self.classifier.cv_results[target_name]
+
+        score_key = f"test_{metric}"
+        if score_key not in cv_result:
+            available = [k for k in cv_result if k.startswith("test_")]
+            msg = (
+                f"Metric '{metric}' not found in CV results. "
+                f"Available test metrics: {available}"
+            )
+            raise ValueError(msg)
+
+        scores = cv_result[score_key]
+        best_fold = int(np.argmax(scores))
+        estimator = cv_result["estimator"][best_fold]
+        train_idx = cv_result["indices"]["train"][best_fold]
+        return estimator, train_idx
+
+    @staticmethod
+    def _haufe_transform(
+        X: np.ndarray,
+        y_pred: np.ndarray,
+        chunk_size: int = 10000,
+    ) -> np.ndarray:
+        """
+        Compute Haufe-transformed activation patterns from model predictions.
+
+        Implements the formula from Haufe et al. (2014): activation patterns
+        are the covariance between feature data and model output, which
+        produces interpretable maps even when features are correlated.
+
+        Uses chunked computation to avoid large intermediate arrays when the
+        feature dimension is high (e.g., vertex-wise neuroimaging data).
+
+        Parameters
+        ----------
+        X : np.ndarray, shape (n_samples, n_features)
+            Preprocessed feature matrix (training-fold data).
+        y_pred : np.ndarray, shape (n_samples,)
+            Scalar model predictions (e.g. predicted probabilities).
+        chunk_size : int, default=10000
+            Number of features to process per chunk.
+
+        Returns
+        -------
+        np.ndarray, shape (n_features,)
+            Haufe activation pattern, one value per feature.
+        """
+        n = len(X)
+        X_mean = X.mean(axis=0)
+        y_centered = y_pred - y_pred.mean()
+
+        if chunk_size >= X.shape[1]:
+            return ((X - X_mean).T @ y_centered) / n
+
+        result = np.zeros(X.shape[1])
+        for i in range(0, X.shape[1], chunk_size):
+            end = min(i + chunk_size, X.shape[1])
+            result[i:end] = (X[:, i:end] - X_mean[i:end]).T @ y_centered
+        return result / n
+
+    def compute_haufe_features(self, dataset) -> pd.Series:
+        """
+        Compute Haufe-transformed feature maps from the best CV-fold model.
+
+        Uses the best outer-fold estimator (by AUC) and that fold's training
+        data to compute the Haufe activation pattern.  Sign convention matches
+        ``brain_signature``: ``predict_proba[:, 0]`` (class-0 probability) is
+        used as the prediction target, which inverts the sign relative to the
+        classifier coefficients.  Signature scores are unaffected (they use
+        ``[:, 1]``).
+
+        Parameters
+        ----------
+        dataset : NeuralSignatureDataset
+            Dataset used during ``cross_validate``.
+
+        Returns
+        -------
+        pd.Series
+            Haufe activation weights indexed by feature name.
+
+        Raises
+        ------
+        ValueError
+            If ``cross_validate`` has not been called first.
+        """
+        estimator, train_idx = self.get_best_cv_model(metric="auc")
+        X_fold = dataset.X_train[train_idx]
+        y_pred = estimator.predict_proba(X_fold)[:, 0]
+        weights = self._haufe_transform(X_fold, y_pred)
+        return pd.Series(weights, index=dataset.feature_names)
+
     def save(self, path) -> None:
         """
         Save the fitted model to disk using joblib.

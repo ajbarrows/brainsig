@@ -13,7 +13,7 @@ requires = ["hatchling", "hatch-vcs"]
 [project]
 name = "brainsig"
 # You can chose to use dynamic versioning with hatch or static where you add it manually.
-version = "0.2.1"
+version = "0.3.0"
 description = "A package for computing 'neural signatures' from fMRI data."
 authors = [
     { name = "Tony Barrows", email = "ajbarrow@uvm.edu" },
@@ -36,6 +36,7 @@ dependencies = [
     "numpy>=1.24",
     "pandas>=2.0", 
     "scikit-learn>=1.3",
+    "ipykernel"
 ]
 
 [project.urls]
@@ -78,6 +79,10 @@ tests = [
 style = [
     "pydoclint",
     "ruff",
+]
+
+reliability = [
+    "pyrelimri>=2.2.3",
 ]
 
 
@@ -173,6 +178,10 @@ exclude = [
     "C901",  # Complexity - get_cv_model_scores handles multiple scoring scenarios
     "PLR0912",  # Too many branches - get_cv_model_scores handles multiple cases
     "PLR2004",  # Magic value 2 for binary vs multiclass is clear in context
+]
+"src/brainsig/residualizer.py" = [
+    "N803",  # Argument names like X follow scikit-learn conventions
+    "N806",  # Variable names like X, C, F follow scikit-learn/stats conventions
 ]
 
 [tool.ruff.lint.isort]

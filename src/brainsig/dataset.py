@@ -12,7 +12,7 @@ import numpy as np
 import pandas as pd
 from sklearn.compose import ColumnTransformer
 from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import OneHotEncoder, StandardScaler
+from sklearn.preprocessing import OneHotEncoder, RobustScaler
 
 logger = logging.getLogger(__name__)
 
@@ -251,11 +251,11 @@ class Dataset:
 
             preprocessor = ColumnTransformer(
                 [
-                    ("num", StandardScaler(), numeric_features),
+                    ("num", RobustScaler(), numeric_features),
                     (
                         "cat",
                         OneHotEncoder(
-                            drop="first",
+                            drop="if_binary",
                             sparse_output=False,
                             categories=categorical_categories,
                             handle_unknown="ignore",

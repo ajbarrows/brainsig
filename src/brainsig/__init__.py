@@ -22,8 +22,22 @@
 # SOFTWARE.
 
 """
-Add a docstring here for the init module.
+brainsig — neural signature analysis for task-based fMRI.
 
-This might include a very brief description of the package,
-its purpose, and any important notes.
+Core classes are importable directly from the package root:
+
+    from brainsig import NeuralSignature, NeuralSignatureDataset, LinearResidualizer
 """
+
+from brainsig.dataset import Dataset
+from brainsig.model import ElasticNetClassifier, NeuralSignature
+from brainsig.neural_dataset import NeuralSignatureDataset
+from brainsig.residualizer import LinearResidualizer
+
+__all__ = [
+    "Dataset",
+    "ElasticNetClassifier",
+    "LinearResidualizer",
+    "NeuralSignature",
+    "NeuralSignatureDataset",
+]

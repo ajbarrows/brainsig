@@ -12,7 +12,9 @@ import numpy as np
 import pandas as pd
 from sklearn.compose import ColumnTransformer
 from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import OneHotEncoder, StandardScaler
+from sklearn.preprocessing import OneHotEncoder, RobustScaler
+
+from brainsig.residualizer import LinearResidualizer
 
 logger = logging.getLogger(__name__)
 
@@ -38,12 +40,20 @@ class NeuralSignatureDataset:
         Column name containing subject identifiers. If provided, the column
         is extracted and removed from features. Subject IDs must match between
         the two DataFrames. If None, integer indices are used.
+    covariate_cols : list of str or None, default=None
+        Column names to residualize out of brain features before model fitting.
+        When provided, a :class:`~brainsig.residualizer.LinearResidualizer` is
+        fitted on the combined training split and applied to all splits and full
+        condition arrays.  Covariate columns are dropped from the output so
+        they never enter the model as predictors.  Matches the
+        ``LinearResidualizer`` step in ``brain_signature``.
     missing_threshold : float, default=0.5
         Columns with a fraction of missing values exceeding this threshold
         are dropped.
     preprocessor : sklearn.compose.ColumnTransformer or None, default=None
         Custom preprocessor. If None, a default preprocessor is created that
-        standardizes numeric features and one-hot encodes categorical features.
+        scales numeric features with ``RobustScaler`` and one-hot encodes
+        categorical features with ``drop="if_binary"``.
     test_size : float, default=0.2
         Proportion of subjects to include in the test split.
     random_state : int or None, default=None
@@ -74,6 +84,8 @@ class NeuralSignatureDataset:
         ``{"condition": [0, 1]}``.
     preprocessor : sklearn.compose.ColumnTransformer
         The fitted preprocessor (fit on training data only).
+    residualizer_ : LinearResidualizer or None
+        Fitted residualizer, or ``None`` if *covariate_cols* was not provided.
     dropped_summary : dict
         Summary of dropped data with keys ``all_missing_cols``,
         ``high_missing_cols``, and ``subjects_dropped``.
@@ -84,6 +96,7 @@ class NeuralSignatureDataset:
         condition1_df: pd.DataFrame,
         condition0_df: pd.DataFrame,
         subject_id_col: str | None = None,
+        covariate_cols: list[str] | None = None,
         missing_threshold: float = 0.5,
         preprocessor: ColumnTransformer | None = None,
         test_size: float = 0.2,
@@ -165,6 +178,24 @@ class NeuralSignatureDataset:
         self.y_train = np.array([1] * n_train + [0] * n_train)
         self.y_test = np.array([1] * n_test + [0] * n_test)
 
+        # --- Covariate residualization (fitted on training data only) ---
+        if covariate_cols is not None:
+            missing_covars = [c for c in covariate_cols if c not in X_train_df.columns]
+            if missing_covars:
+                msg = (
+                    f"covariate_cols {missing_covars} not found in feature columns "
+                    f"after missing-data handling."
+                )
+                raise ValueError(msg)
+            self.residualizer_ = LinearResidualizer(covariate_cols=covariate_cols)
+            self.residualizer_.fit(X_train_df)
+            X_train_df = self.residualizer_.transform(X_train_df)
+            X_test_df = self.residualizer_.transform(X_test_df)
+            condition1_df = self.residualizer_.transform(condition1_df)
+            condition0_df = self.residualizer_.transform(condition0_df)
+        else:
+            self.residualizer_ = None
+
         # --- Build / fit preprocessor ---
         if preprocessor is None:
             preprocessor = self._build_default_preprocessor(X_train_df)
@@ -208,11 +239,11 @@ class NeuralSignatureDataset:
 
         return ColumnTransformer(
             [
-                ("num", StandardScaler(), numeric_features),
+                ("num", RobustScaler(), numeric_features),
                 (
                     "cat",
                     OneHotEncoder(
-                        drop="first",
+                        drop="if_binary",
                         sparse_output=False,
                         categories=categorical_categories,
                         handle_unknown="ignore",

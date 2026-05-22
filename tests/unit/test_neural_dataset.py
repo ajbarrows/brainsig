@@ -308,3 +308,128 @@ class TestReproducibility:
         )
         # Very unlikely to be the same split
         assert not np.array_equal(ds1.X_train, ds2.X_train)
+
+
+@pytest.fixture
+def paired_dfs_with_covariates():
+    """Paired DataFrames where two columns are covariates (age, sex)."""
+    rng = np.random.default_rng(7)
+    n = 60
+    subject_ids = [f"sub-{i:03d}" for i in range(n)]
+    age = rng.standard_normal(n)
+    sex = rng.choice([0.0, 1.0], size=n)
+
+    def make_condition():
+        feat = (
+            rng.standard_normal((n, 8))
+            + (2.0 * age + 0.5 * sex)[:, None]
+        )
+        df = pd.DataFrame(feat, columns=[f"roi_{i}" for i in range(8)])
+        df["age"] = age
+        df["sex"] = sex
+        df["subject_id"] = subject_ids
+        return df
+
+    return make_condition(), make_condition()
+
+
+class TestCovariateResidualisation:
+    """Test covariate_cols residualisation in NeuralSignatureDataset."""
+
+    def test_residualizer_stored(self, paired_dfs_with_covariates):
+        cond1, cond0 = paired_dfs_with_covariates
+        ds = NeuralSignatureDataset(
+            cond1, cond0, subject_id_col="subject_id",
+            covariate_cols=["age", "sex"],
+            random_state=42, verbose=False,
+        )
+        assert ds.residualizer_ is not None
+
+    def test_no_residualizer_when_not_requested(self, paired_dfs):
+        cond1, cond0 = paired_dfs
+        ds = NeuralSignatureDataset(
+            cond1, cond0, subject_id_col="subject_id",
+            random_state=42, verbose=False,
+        )
+        assert ds.residualizer_ is None
+
+    def test_covariate_cols_absent_from_features(self, paired_dfs_with_covariates):
+        cond1, cond0 = paired_dfs_with_covariates
+        ds = NeuralSignatureDataset(
+            cond1, cond0, subject_id_col="subject_id",
+            covariate_cols=["age", "sex"],
+            random_state=42, verbose=False,
+        )
+        for name in ds.feature_names:
+            assert "age" not in name
+            assert "sex" not in name
+
+    def test_feature_count_reduced_by_covariates(self, paired_dfs_with_covariates):
+        cond1, cond0 = paired_dfs_with_covariates
+        ds_with = NeuralSignatureDataset(
+            cond1, cond0, subject_id_col="subject_id",
+            covariate_cols=["age", "sex"],
+            random_state=42, verbose=False,
+        )
+        ds_without = NeuralSignatureDataset(
+            cond1, cond0, subject_id_col="subject_id",
+            random_state=42, verbose=False,
+        )
+        assert ds_with.X_train.shape[1] == ds_without.X_train.shape[1] - 2
+
+    def test_residualised_features_differ_from_raw(self, paired_dfs_with_covariates):
+        cond1, cond0 = paired_dfs_with_covariates
+        ds_with = NeuralSignatureDataset(
+            cond1, cond0, subject_id_col="subject_id",
+            covariate_cols=["age", "sex"],
+            random_state=42, verbose=False,
+        )
+        ds_without = NeuralSignatureDataset(
+            cond1, cond0, subject_id_col="subject_id",
+            random_state=42, verbose=False,
+        )
+        # Remove covariate columns from the no-residualisation dataset to compare
+        n_brain = ds_with.X_train.shape[1]
+        assert not np.allclose(ds_with.X_train, ds_without.X_train[:, :n_brain])
+
+    def test_invalid_covariate_col_raises(self, paired_dfs):
+        cond1, cond0 = paired_dfs
+        with pytest.raises(ValueError, match="covariate_cols"):
+            NeuralSignatureDataset(
+                cond1, cond0, subject_id_col="subject_id",
+                covariate_cols=["nonexistent"],
+                verbose=False,
+            )
+
+    def test_condition_arrays_are_residualized(self, paired_dfs_with_covariates):
+        """condition1 and condition0 must use the fitted residualizer, not raw features."""
+        cond1, cond0 = paired_dfs_with_covariates
+        ds = NeuralSignatureDataset(
+            cond1, cond0, subject_id_col="subject_id",
+            covariate_cols=["age", "sex"],
+            random_state=42, verbose=False,
+        )
+
+        # Reconstruct what condition1 would look like WITHOUT residualization:
+        # apply only the ColumnTransformer (which selects brain columns by name)
+        # to the raw brain features.
+        brain_cols = [f"roi_{i}" for i in range(8)]
+        cond1_raw = (
+            cond1.set_index("subject_id")
+            .loc[ds.subject_ids]
+            .reset_index(drop=True)[brain_cols]
+        )
+        unresid_condition1 = ds.preprocessor.transform(cond1_raw)
+
+        # The actual condition1 (residualized then scaled) must differ from the
+        # unresidualised version, catching any missing residualizer.transform call.
+        assert not np.allclose(ds.condition1, unresid_condition1)
+
+        # Same check for condition0
+        cond0_raw = (
+            cond0.set_index("subject_id")
+            .loc[ds.subject_ids]
+            .reset_index(drop=True)[brain_cols]
+        )
+        unresid_condition0 = ds.preprocessor.transform(cond0_raw)
+        assert not np.allclose(ds.condition0, unresid_condition0)

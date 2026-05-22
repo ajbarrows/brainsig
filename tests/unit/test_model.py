@@ -418,3 +418,123 @@ class TestNeuralSignatureHelperMethods:
         assert "metric" in scores.columns
         assert "value" in scores.columns
         assert "partition" in scores.columns
+
+
+class TestHaufeTransform:
+    """Tests for get_best_cv_model, _haufe_transform, compute_haufe_features."""
+
+    def test_haufe_transform_shape(self):
+        rng = np.random.default_rng(0)
+        X = rng.standard_normal((50, 8))
+        y = rng.standard_normal(50)
+        result = NeuralSignature._haufe_transform(X, y)
+        assert result.shape == (8,)
+
+    def test_haufe_transform_chunked_matches_full(self):
+        rng = np.random.default_rng(1)
+        X = rng.standard_normal((30, 20))
+        y = rng.standard_normal(30)
+        full = NeuralSignature._haufe_transform(X, y, chunk_size=100)
+        chunked = NeuralSignature._haufe_transform(X, y, chunk_size=5)
+        np.testing.assert_allclose(chunked, full, rtol=1e-10)
+
+    def test_haufe_transform_chunked_large_x_mean(self):
+        # X centering is algebraically redundant (y_centered always sums to zero),
+        # but a large X mean exercises the chunk-boundary index arithmetic more
+        # thoroughly and guards against accumulation errors in the chunked path.
+        rng = np.random.default_rng(3)
+        X = rng.standard_normal((30, 12)) + 1000.0
+        y = rng.standard_normal(30)
+        full = NeuralSignature._haufe_transform(X, y, chunk_size=100)
+        chunked = NeuralSignature._haufe_transform(X, y, chunk_size=4)
+        np.testing.assert_allclose(chunked, full, rtol=1e-8)
+
+    def test_haufe_transform_zero_for_uncorrelated(self):
+        rng = np.random.default_rng(2)
+        n = 1000
+        X = rng.standard_normal((n, 5))
+        # y independent of X → Haufe weights should be near zero
+        y = rng.standard_normal(n)
+        result = NeuralSignature._haufe_transform(X, y)
+        assert np.abs(result).max() < 0.2
+
+    def test_get_best_cv_model_requires_cv(self, binary_dataset):
+        neural_sig = NeuralSignature(random_state=42)
+        with pytest.raises(ValueError, match="cross_validate"):
+            neural_sig.get_best_cv_model()
+
+    def test_get_best_cv_model_invalid_metric(self, binary_dataset):
+        neural_sig = NeuralSignature(
+            outer_folds=3, inner_folds=3, random_state=42
+        )
+        neural_sig.cross_validate(binary_dataset)
+        with pytest.raises(ValueError, match="not found in CV results"):
+            neural_sig.get_best_cv_model(metric="nonexistent")
+
+    def test_get_best_cv_model_returns_fitted_estimator(self, binary_dataset):
+        neural_sig = NeuralSignature(
+            outer_folds=3, inner_folds=3, random_state=42
+        )
+        neural_sig.cross_validate(binary_dataset)
+        estimator, train_idx = neural_sig.get_best_cv_model(metric="auc")
+        assert hasattr(estimator, "predict_proba")
+        assert isinstance(train_idx, np.ndarray)
+        assert len(train_idx) > 0
+
+    def test_get_best_cv_model_selects_highest_auc_fold(self, binary_dataset):
+        neural_sig = NeuralSignature(
+            outer_folds=5, inner_folds=3, random_state=42
+        )
+        neural_sig.cross_validate(binary_dataset)
+        _, train_idx = neural_sig.get_best_cv_model(metric="auc")
+
+        cv_result = next(iter(neural_sig.classifier.cv_results.values()))
+        aucs = cv_result["test_auc"]
+        expected_best_fold = int(np.argmax(aucs))
+        expected_train_idx = cv_result["indices"]["train"][expected_best_fold]
+
+        # The returned train_idx must match the fold with the highest AUC
+        np.testing.assert_array_equal(train_idx, expected_train_idx)
+        # That fold's AUC must be the maximum across all folds
+        assert aucs[expected_best_fold] == aucs.max()
+
+    def test_compute_haufe_features_requires_cv(self, binary_dataset):
+        neural_sig = NeuralSignature(random_state=42)
+        with pytest.raises(ValueError, match="cross_validate"):
+            neural_sig.compute_haufe_features(binary_dataset)
+
+    def test_compute_haufe_features_returns_series(self, binary_dataset):
+        neural_sig = NeuralSignature(
+            outer_folds=3, inner_folds=3, random_state=42
+        )
+        neural_sig.cross_validate(binary_dataset)
+        haufe = neural_sig.compute_haufe_features(binary_dataset)
+        assert isinstance(haufe, pd.Series)
+        assert len(haufe) == len(binary_dataset.feature_names)
+
+    def test_compute_haufe_features_index_matches_feature_names(self, binary_dataset):
+        neural_sig = NeuralSignature(
+            outer_folds=3, inner_folds=3, random_state=42
+        )
+        neural_sig.cross_validate(binary_dataset)
+        haufe = neural_sig.compute_haufe_features(binary_dataset)
+        np.testing.assert_array_equal(
+            haufe.index.to_numpy(), binary_dataset.feature_names
+        )
+
+    def test_haufe_sign_convention_uses_class0_probability(self, binary_dataset):
+        # compute_haufe_features must use predict_proba[:, 0] (class-0 probability).
+        # Since proba[:, 0] + proba[:, 1] == 1, their centered versions are negations,
+        # so Haufe weights from [:, 0] must be the exact negation of those from [:, 1].
+        neural_sig = NeuralSignature(
+            outer_folds=3, inner_folds=3, random_state=42
+        )
+        neural_sig.cross_validate(binary_dataset)
+        haufe = neural_sig.compute_haufe_features(binary_dataset)
+
+        estimator, train_idx = neural_sig.get_best_cv_model(metric="auc")
+        X_fold = binary_dataset.X_train[train_idx]
+        y_class1 = estimator.predict_proba(X_fold)[:, 1]
+        haufe_class1 = NeuralSignature._haufe_transform(X_fold, y_class1)
+
+        np.testing.assert_allclose(haufe.to_numpy(), -haufe_class1, rtol=1e-10)
